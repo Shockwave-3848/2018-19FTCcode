@@ -1,0 +1,1569 @@
+﻿//Autonomous Code
+
+
+package org.firstinspires.ftc.teamcode;
+
+
+/**
+* Created by Nate on 9/13/18.
+*/
+
+
+/*
+Key:
+flw = front left wheel
+frw = front right wheel
+blw = back left wheel
+brw = back right wheel
+*/
+
+
+/*
+                       Playing field
+
+
+       ------------------------------------------------------------
+       |                                                          |
+       |  Blue Crater                        Red Claiming point   |
+       |                                                          |
+       |                                                          |
+       |                                                          |
+       |                                                          |
+       |                  Pos 2        Pos 1                      |
+       |                        Lander                            |
+       |                  Pos 1        Pos 2                      |
+       |                                                          |
+       |                                                          |
+       |                                                          |
+       |                                                          |
+       |                                                          |
+       | Blue Claiming point                        Red Crater    |
+       |                                                          |
+       ------------------------------------------------------------
+
+
+*/
+
+
+//imports
+import com.qualcomm.hardware.bosch.BNO055IMU;
+import com.qualcomm.robotcore.eventloop.opmode.Autonomous;
+import com.qualcomm.robotcore.eventloop.opmode.Disabled;
+import com.qualcomm.robotcore.eventloop.opmode.LinearOpMode;
+import com.qualcomm.robotcore.hardware.DcMotor;
+
+
+import org.firstinspires.ftc.robotcore.external.ClassFactory;
+import org.firstinspires.ftc.robotcore.external.navigation.AngleUnit;
+import org.firstinspires.ftc.robotcore.external.navigation.AxesOrder;
+import org.firstinspires.ftc.robotcore.external.navigation.AxesReference;
+import org.firstinspires.ftc.robotcore.external.navigation.Orientation;
+import org.firstinspires.ftc.robotcore.external.navigation.Position;
+import org.firstinspires.ftc.robotcore.external.navigation.Velocity;
+import org.firstinspires.ftc.robotcore.external.navigation.VuforiaLocalizer;
+import org.firstinspires.ftc.robotcore.external.navigation.VuforiaLocalizer.CameraDirection;
+import org.firstinspires.ftc.robotcore.external.tfod.Recognition;
+import org.firstinspires.ftc.robotcore.external.tfod.TFObjectDetector;
+
+
+import java.util.List;
+//imports
+
+
+@Autonomous(name="Rover_Ruckus_Autonomous", group="Shockwave")
+@Disabled
+public class Rover_Ruckus_Autonomous extends LinearOpMode {
+   //Defining the wheels thier motors
+   DcMotor left_front_motor;
+   DcMotor right_front_motor;
+   DcMotor left_back_motor;
+   DcMotor right_back_motor;
+
+
+   //Arm
+   DcMotor shoulder;
+   DcMotor bicep;
+
+
+   //gyro or imu
+   // The IMU sensor object
+   BNO055IMU imu;
+
+
+   // State used for updating telemetry
+   Orientation angles;
+
+
+   //Wheel stats
+   static final int motor_revcount = 288; //288 ticks per rotation
+   static final double wheel_diameter = 3.54;
+   static final double counts_per_inch = (motor_revcount) / (wheel_diameter * Math.PI);
+
+
+   //forearm stats
+   static final int forearm_revcount = 280; //280 ticks per rotation
+   static final double gear_diameter = 0.6; // inches
+   static final double arm_counts_per_inch = (forearm_revcount) / (gear_diameter * 3.1415);
+
+
+   //Speed stats
+   static double drive_speed = 1.0;
+   static double top_speed = 1.0;
+   static double bottom_speed = 0.2;
+
+
+   //A little forgiveness for the robot
+   static double tolerance = 5;
+
+
+   //Slows down before finding correct angle to prvent the robot from over shoting it
+   static int almost_there = 20;
+
+
+   //distance between the game pieces
+   static double distance_between_the_game_pieces = 16.970562748477105822026;
+
+
+   //Has the pos_inputed
+   String pos_inputed = "not inputed";
+
+
+   //Red or blue?
+   String red_or_blue = "not inputed";
+
+
+   //Tenser flow
+   public static final String TFOD_MODEL_ASSET = "RoverRuckus.tflite";
+
+
+   //gold
+   public static final String LABEL_GOLD_MINERAL = "Gold Mineral";
+
+
+   //silver
+   public static final String LABEL_SILVER_MINERAL = "Silver Mineral";
+
+
+   //Vuforia key
+   public static final String VUFORIA_KEY = "ASB+lMn/////AAABmSELZ/IC5U5BklpoBPC3MN4Bnga4Xi/C52uy24x/iu+1isv802qak3Cz7DOfClTCJ0WCslWLoV5ClMI7bZ0r9g6woGi76wVh5QT5qCojPJAWQCI/mWexTqyZRHLEsB9i6bVvI6aP2fAOCOy5W2+MkXZ8ATQQXmpCkiCNIM7uijcc1KUbnInxxZwKC249md7EOb8jgY/I0zflVOeMj2wi/SS/V98KfZcDbis0DeMBhOtG3YiNwr9Ak5Zo5rutC5V8gCiJTRQm9acUmHoj1h18klkoRu4yt97kJnoemgnbrbzWiPJZ1iWwGNcFruZSvtCxApi4vMk+H//LZztLJnnpXFejWjVaJL+s437tIFp8w/aV";
+
+
+   //Vuforia: the variable we will use to store our instance of the Vuforia
+   public VuforiaLocalizer vuforia;
+
+
+   //Tfod is the variable we will use to store our instance of the Tensor Flow Object
+   public TFObjectDetector tfod;
+
+
+   public void where_are_we(){
+
+
+       //Color message
+       telemetry.addData("Please", " input color. Press x if we are Blue and press B if we are Red.");
+       telemetry.update();
+
+
+       while (red_or_blue.matches("not inputed")){
+           if (gamepad1.x){
+               red_or_blue = "Blue";
+           }
+
+
+           if (gamepad1.b){
+               red_or_blue = "Red";
+           }
+       }
+
+
+       //Position message
+       telemetry.addData("Please", " input position. Press Y if we are in position 1" +
+               " and press A if we are position 2.");
+       telemetry.update();
+
+
+       while (pos_inputed.matches("not inputed")){
+           if (gamepad1.y){
+               pos_inputed = "1";
+           }
+
+
+           if (gamepad1.a){
+               pos_inputed = "2";
+           }
+       }
+
+
+       //let us go
+       telemetry.addData("Ready to go!!!!","Let us do this!");
+       telemetry.update();
+   }
+
+
+   public void initVuforia() {
+       /*
+        * Configure Vuforia by creating a Parameter object, and passing it to the Vuforia engine.
+        */
+       VuforiaLocalizer.Parameters parameters = new VuforiaLocalizer.Parameters();
+
+
+       parameters.vuforiaLicenseKey = VUFORIA_KEY;
+       parameters.cameraDirection = CameraDirection.BACK;
+
+
+       //  Instantiate the Vuforia engine
+       vuforia = ClassFactory.getInstance().createVuforia(parameters);
+
+
+       // Loading trackables is not necessary for the Tensor Flow Object Detection engine.
+   }
+
+
+   public void initTfod() {
+       int tfodMonitorViewId = hardwareMap.appContext.getResources().getIdentifier(
+               "tfodMonitorViewId", "id", hardwareMap.appContext.getPackageName());
+       TFObjectDetector.Parameters tfodParameters = new TFObjectDetector.Parameters(tfodMonitorViewId);
+       tfod = ClassFactory.getInstance().createTFObjectDetector(tfodParameters, vuforia);
+       tfod.loadModelFromAsset(TFOD_MODEL_ASSET, LABEL_GOLD_MINERAL, LABEL_SILVER_MINERAL);
+   }
+
+
+   public void find_angle(double angle_I_want) {
+
+
+       boolean finding_angle = true;
+
+
+       while (finding_angle == true) {
+
+
+           //finds angles
+           angles = imu.getAngularOrientation(AxesReference.INTRINSIC, AxesOrder.ZYX, AngleUnit.DEGREES);
+
+
+           //The bigger this is the closer it has to be to slow down
+           double multiplier = 1;
+           double angle_diff;
+
+
+           /*
+           angles.firstAngle = xy plane
+           angles.secondAngle = tilt
+           angles.thirdAngle = roll
+           */
+
+
+           if (Math.round(angles.firstAngle) > angle_I_want) {
+
+
+               //Slows down before finding correct angle to prevent the robot from over shoting it
+               angle_diff = (angles.firstAngle - angle_I_want);
+               drive_speed = Math.min(Math.max((angle_diff * multiplier), top_speed), bottom_speed);
+
+
+               left_front_motor.setPower(-drive_speed);
+               right_front_motor.setPower(-drive_speed);
+               left_back_motor.setPower(-drive_speed);
+               right_back_motor.setPower(-drive_speed);
+
+
+           } else if (Math.round(angles.firstAngle) < angle_I_want) {
+
+
+               //Slows down before finding correct angle to prevent the robot from over shoting it
+               angle_diff = (angle_I_want - angles.firstAngle);
+               drive_speed = Math.min(Math.max((angle_diff * multiplier), top_speed), bottom_speed);
+
+
+               left_front_motor.setPower(drive_speed);
+               right_front_motor.setPower(drive_speed);
+               left_back_motor.setPower(drive_speed);
+               right_back_motor.setPower(drive_speed);
+
+
+           }
+
+
+           else {
+
+
+               //Tells user the robot found the right angle
+               telemetry.addData("On", "track!!!");
+               telemetry.update();
+
+
+               //Stops all motion
+               left_front_motor.setPower(0);
+               right_front_motor.setPower(0);
+               left_back_motor.setPower(0);
+               right_back_motor.setPower(0);
+
+
+               //FOUND ANGLE :)
+               finding_angle = false;
+
+
+           }
+
+
+           //Updates user
+           telemetry.addData("First angle is is '%s'", angles.firstAngle);
+           telemetry.update();
+       }
+
+
+   }//end of find angle
+
+
+   //Move Arm
+   public void use_arm(int inches, int shoulder_power, boolean claw_open){
+
+
+       int new_shoulder_target;
+       int new_bicep_target;
+
+
+       telemetry.addData("Current position:",shoulder.getCurrentPosition());
+       telemetry.update();
+
+
+       //Turns on run to position
+       shoulder.setMode(DcMotor.RunMode.RUN_TO_POSITION);
+
+
+       if (opModeIsActive()) {
+
+
+           //target
+           new_shoulder_target = shoulder.getCurrentPosition() + (int)(inches * arm_counts_per_inch);
+           shoulder.setTargetPosition(new_shoulder_target);
+
+
+           while (opModeIsActive() && (shoulder.isBusy())) {
+
+
+               shoulder.setPower(shoulder_power);
+               // Display it for the driver.
+               telemetry.addData("shoulder: ", shoulder.getCurrentPosition());
+               telemetry.update();
+           }
+
+
+           //stop!
+           shoulder.setPower(0);
+
+
+       }//Opmode is active
+
+
+       telemetry.addData("Current position:",shoulder.getCurrentPosition());
+       telemetry.update();
+
+
+       //Turns of run to position
+       shoulder.setMode(DcMotor.RunMode.RUN_USING_ENCODER);
+
+
+       //stop
+       shoulder.setPower(0.0);
+
+
+   }//End of move arm
+
+
+   public void drive(double Front_left_wheel_power,double Front_right_wheel_power ,double Back_left_wheel_power ,double Back_right_wheel_power , double inches){
+
+
+       //goes to angle
+       //find_angle(angle);
+
+
+       int new_flw_target;
+       int new_frw_target;
+       int new_blw_target;
+       int new_brw_target;
+
+
+       if (opModeIsActive()) {
+
+
+           //flw target
+           new_flw_target = shoulder.getCurrentPosition() + (int)(inches * arm_counts_per_inch);
+           left_front_motor.setTargetPosition(new_flw_target);
+
+
+           //frw target
+           new_frw_target = shoulder.getCurrentPosition() + (int)(inches * arm_counts_per_inch);
+           right_front_motor.setTargetPosition(new_frw_target);
+
+
+           //blw target
+           new_blw_target = shoulder.getCurrentPosition() + (int)(inches * arm_counts_per_inch);
+           left_back_motor.setTargetPosition(new_blw_target);
+
+
+           //brw target
+           new_brw_target = shoulder.getCurrentPosition() + (int)(inches * arm_counts_per_inch);
+           right_back_motor.setTargetPosition(new_brw_target);
+
+
+           //finds angles
+           angles = imu.getAngularOrientation(AxesReference.INTRINSIC, AxesOrder.ZYX, AngleUnit.DEGREES);
+
+
+           //Determines which varibles power each motor
+           left_front_motor.setPower(Front_left_wheel_power);
+           right_front_motor.setPower(Front_right_wheel_power);
+           left_back_motor.setPower(Back_left_wheel_power);
+           right_back_motor.setPower(Back_right_wheel_power);
+
+
+           // Turn On RUN_TO_POSITION
+           left_front_motor.setMode(DcMotor.RunMode.RUN_TO_POSITION);
+           right_front_motor.setMode(DcMotor.RunMode.RUN_TO_POSITION);
+           left_back_motor.setMode(DcMotor.RunMode.RUN_TO_POSITION);
+           right_back_motor.setMode(DcMotor.RunMode.RUN_TO_POSITION);
+
+
+           //if shifted find angle
+           /*
+           if ((angle > Math.round(angles.firstAngle) + tolerance) || (angle < Math.round(angles.firstAngle) - tolerance)) {
+               //goes to angle
+               find_angle(angle);
+
+
+           }
+           */
+
+
+           while (opModeIsActive() && left_front_motor.isBusy() && left_front_motor.isBusy() && left_back_motor.isBusy() && right_back_motor.isBusy()){
+
+
+               left_front_motor.setPower(Front_left_wheel_power);
+               right_front_motor.setPower(Front_right_wheel_power);
+               left_back_motor.setPower(Back_left_wheel_power);
+               right_back_motor.setPower(Back_right_wheel_power);
+
+
+           }
+
+
+       }//Opmode is active
+
+
+   }//End of drive
+
+
+   //find gold method
+   public void find_gold(){
+
+
+       boolean finding_gold = true;
+
+
+       //loop
+       if (opModeIsActive()) {
+
+
+           /** Activate Tensor Flow Object Detection. */
+           if (tfod != null) {
+               tfod.activate();
+           }
+
+
+           while (opModeIsActive()) {
+
+
+               if (tfod != null) {
+
+
+                   // getUpdatedRecognitions() will return null if no new information is available since
+                   // the last time that call was made.
+                   List<Recognition> updatedRecognitions = tfod.getUpdatedRecognitions();
+
+
+                   //checks if updatedRecognitions is not null
+                   if (updatedRecognitions != null) {
+
+
+                       //Found 3 of something
+                       if (updatedRecognitions.size() == 3) {
+                           telemetry.addData("# Object Detected", updatedRecognitions.size());
+                           telemetry.update();
+
+
+                           int goldx = -1;
+                           int silver1x = -1;
+                           int silver2x = -1;
+
+
+                           //Recognition
+                           for (Recognition recognition : updatedRecognitions) {
+
+
+                               if (recognition.getLabel().equals(LABEL_GOLD_MINERAL)) {
+
+
+                                   goldx = (int) recognition.getLeft();
+
+
+                               } else if (silver1x == -1) {
+
+
+                                   silver1x = (int) recognition.getLeft();
+
+
+                               } else {
+
+
+                                   silver2x = (int) recognition.getLeft();
+                               }
+
+
+                               //checks to see which is more left
+                               if (goldx != -1 && silver1x != -1 && silver2x != -1) {
+
+
+                                   //Gold is on the left
+                                   if (goldx < silver1x && goldx < silver2x) {
+                                       telemetry.addData("Gold Mineral Position", "Left");
+                                       telemetry.update();
+
+
+                                       drive(1,1,1,1, 14.5);
+
+
+                                   }
+
+
+                                   //Gold is on the right
+                                   if (goldx > silver1x && goldx > silver2x) {
+                                       telemetry.addData("Gold Mineral Position", "Right");
+                                       telemetry.update();
+                                       drive(-1,1,1,1, 14.5);
+                                   }
+
+
+                                   //Gold is center
+                                   else {
+                                       telemetry.addData("Gold Mineral Position", "Center");
+                                       telemetry.update();
+                                       drive(1,1,1,1,14.5);
+                                   }
+
+
+
+
+                               }//checks to see which is more left
+
+
+                           }//Recognition
+
+
+                       }//Found 3 of something
+
+
+                   }//checks if updatedRecognitions is not null
+
+
+               }//tfod != null
+
+
+           }//while opmode is active
+       }
+
+
+       //I honesty dont know what this does but I am scared to delete it :(
+       if (tfod != null) {
+           tfod.shutdown();
+       }
+
+
+
+
+   }//End of find gold
+
+
+   @Override
+   //Where all the commands are issued------------------------------------------------------------------------------------
+   public void runOpMode() {
+
+
+       //Getting the wheels ready------------------------------------------------------------------
+
+
+       //Finds the wheels
+       left_front_motor = hardwareMap.dcMotor.get("left_front_motor");
+       right_front_motor = hardwareMap.dcMotor.get("right_front_motor");
+       left_back_motor = hardwareMap.dcMotor.get("left_back_motor");
+       right_back_motor = hardwareMap.dcMotor.get("right_back_motor");
+
+
+       //Arm
+       shoulder = hardwareMap.dcMotor.get("shoulder");
+       bicep = hardwareMap.dcMotor.get("bicep");
+
+
+       //reverse backwards motor
+       left_front_motor.setDirection(DcMotor.Direction.REVERSE);
+       right_front_motor.setDirection(DcMotor.Direction.REVERSE);
+       bicep.setDirection(DcMotor.Direction.REVERSE);
+
+
+       //Getting the wheels ready------------------------------------------------------------------
+
+
+       //Getting the gyro ready--------------------------------------------------------------------
+
+
+       BNO055IMU.Parameters parameters = new BNO055IMU.Parameters();
+       parameters.angleUnit           = BNO055IMU.AngleUnit.DEGREES;
+       parameters.accelUnit           = BNO055IMU.AccelUnit.METERS_PERSEC_PERSEC;
+       parameters.calibrationDataFile = "BNO055IMUCalibration.json"; // see the calibration sample opmode
+
+
+       //Gyro
+       imu = hardwareMap.get(BNO055IMU.class, "imu");
+       imu.initialize(parameters);
+
+
+       // Start the logging of measured acceleration
+       imu.startAccelerationIntegration(new Position(), new Velocity(), 1000);
+
+
+       //Getting the gyro ready--------------------------------------------------------------------
+
+
+       //initilized Vuforia
+       initVuforia();
+
+
+       //Checks if the damn thing can use the tenser flow
+       if (ClassFactory.getInstance().canCreateTFObjectDetector()) {
+           initTfod();
+       } else {
+           telemetry.addData("Sorry!", "This device is not compatible with TFOD");
+       }
+
+
+       //Driver input
+//        where_are_we();
+
+
+       //wait for start
+      waitForStart();
+
+
+       // quick and dirty
+       int bicepcount = 2;
+       int bicepoffset = -800;
+
+
+       for(int i = 0 ; i < bicepcount ; i++){
+           int bicepTarget = bicep.getCurrentPosition() + bicepoffset;
+           bicep.setTargetPosition(bicepTarget);
+           bicep.setMode(DcMotor.RunMode.RUN_TO_POSITION);
+           bicep.setPower(1.0);
+       }
+
+
+       int decendcount = 400;
+       int decendoffset = 5000;
+
+
+       for(int i = 0 ; i < decendcount ; i++){
+           int decendTarget = shoulder.getCurrentPosition() + decendoffset;
+           shoulder.setTargetPosition(decendTarget);
+           shoulder.setMode(DcMotor.RunMode.RUN_TO_POSITION);
+           shoulder.setPower(1.0);
+       }
+
+
+       int spincount = 20;
+       int spinoffset = 5000;
+
+
+       for(int i = 0 ; i < spincount ; i++){
+           int spinTarget = shoulder.getCurrentPosition() + spinoffset;
+           right_back_motor.setTargetPosition(-spinTarget);
+           left_back_motor.setTargetPosition(-spinTarget);
+           right_front_motor.setTargetPosition(spinTarget);
+           left_front_motor.setTargetPosition(spinTarget);
+
+
+           right_back_motor.setMode(DcMotor.RunMode.RUN_TO_POSITION);
+           left_back_motor.setMode(DcMotor.RunMode.RUN_TO_POSITION);
+           right_front_motor.setMode(DcMotor.RunMode.RUN_TO_POSITION);
+           left_front_motor.setMode(DcMotor.RunMode.RUN_TO_POSITION);
+
+
+           right_back_motor.setPower(1.0);
+           left_back_motor.setPower(1.0);
+           right_front_motor.setPower(1.0);
+           left_front_motor.setPower(1.0);
+       }
+
+
+//        //goes up
+//        use_arm(80,1,false);
+//
+//        //goes left, detaches
+//        drive(1,0.5,-1,-1,0.1);
+//
+//        //goes down
+//        use_arm(-80,-1,false);
+//
+//        //find gold
+//        //find_gold();
+//
+//        drive(1,1,1,1,3);
+//
+//        if(red_or_blue.matches("Red")){
+//
+//            if (pos_inputed.matches("1")){
+//
+//                //away from lander
+//                drive(1,1,1,1,30);
+//
+//                //turn left
+//                drive(-1,1,-1,1, 15);
+//
+//                //drive forward
+//                drive(1,1,1,1,14.5);
+//
+//                //turn right
+//                drive(1,-1,1,-1, 15);
+//
+//                //drive forward
+//                drive(1,1,1,1,49);
+//            }
+//
+//            if (pos_inputed.matches("2")){
+//
+//                //drive forward
+//                drive(1,1,1,1,30);
+//
+//            }
+//
+//        }
+//
+//        if(red_or_blue.matches("Blue")){
+//
+//            if (pos_inputed.matches("1")){
+//
+//                //away from lander
+//                drive(1,1,1,1,30);
+//
+//                //turn right
+//                drive(-1,1,-1,1, 15);
+//
+//                //drive forward
+//                drive(1,1,1,1,14.5);
+//
+//                //turn left
+//                drive(1,-1,1,-1, 15);
+//
+//                //drive forward
+//                drive(1,1,1,1,49);
+//
+//            }
+//
+//            if (pos_inputed.matches("2")){
+//
+//                //drive forward
+//                drive(1,1,1,1,30);
+//
+//            }
+
+
+//        }
+
+
+   }//End of op mode
+   //Where all the commands are issued------------------------------------------------------------------------------------
+
+
+}//End of class
+package org.firstinspires.ftc.teamcode;
+
+
+/**
+* Created by Nate on 9/13/18.
+*/
+
+
+/*
+Key:
+flw = front left wheel
+frw = front right wheel
+blw = back left wheel
+brw = back right wheel
+*/
+
+
+/*
+                       Playing field
+
+
+       ------------------------------------------------------------
+       |                                                          |
+       |  Blue Crater                        Red Claiming point   |
+       |                                                          |
+       |                                                          |
+       |                                                          |
+       |                                                          |
+       |                  Pos 2        Pos 1                      |
+       |                        Lander                            |
+       |                  Pos 1        Pos 2                      |
+       |                                                          |
+       |                                                          |
+       |                                                          |
+       |                                                          |
+       |                                                          |
+       | Blue Claiming point                        Red Crater    |
+       |                                                          |
+       ------------------------------------------------------------
+
+
+*/
+
+
+//imports
+import com.qualcomm.hardware.bosch.BNO055IMU;
+import com.qualcomm.robotcore.eventloop.opmode.Autonomous;
+import com.qualcomm.robotcore.eventloop.opmode.Disabled;
+import com.qualcomm.robotcore.eventloop.opmode.LinearOpMode;
+import com.qualcomm.robotcore.hardware.DcMotor;
+
+
+import org.firstinspires.ftc.robotcore.external.ClassFactory;
+import org.firstinspires.ftc.robotcore.external.navigation.AngleUnit;
+import org.firstinspires.ftc.robotcore.external.navigation.AxesOrder;
+import org.firstinspires.ftc.robotcore.external.navigation.AxesReference;
+import org.firstinspires.ftc.robotcore.external.navigation.Orientation;
+import org.firstinspires.ftc.robotcore.external.navigation.Position;
+import org.firstinspires.ftc.robotcore.external.navigation.Velocity;
+import org.firstinspires.ftc.robotcore.external.navigation.VuforiaLocalizer;
+import org.firstinspires.ftc.robotcore.external.navigation.VuforiaLocalizer.CameraDirection;
+import org.firstinspires.ftc.robotcore.external.tfod.Recognition;
+import org.firstinspires.ftc.robotcore.external.tfod.TFObjectDetector;
+
+
+import java.util.List;
+//imports
+
+
+@Autonomous(name="Rover_Ruckus_Autonomous", group="Shockwave")
+@Disabled
+public class Rover_Ruckus_Autonomous extends LinearOpMode {
+   //Defining the wheels thier motors
+   DcMotor left_front_motor;
+   DcMotor right_front_motor;
+   DcMotor left_back_motor;
+   DcMotor right_back_motor;
+
+
+   //Arm
+   DcMotor shoulder;
+   DcMotor bicep;
+
+
+   //gyro or imu
+   // The IMU sensor object
+   BNO055IMU imu;
+
+
+   // State used for updating telemetry
+   Orientation angles;
+
+
+   //Wheel stats
+   static final int motor_revcount = 288; //288 ticks per rotation
+   static final double wheel_diameter = 3.54;
+   static final double counts_per_inch = (motor_revcount) / (wheel_diameter * Math.PI);
+
+
+   //forearm stats
+   static final int forearm_revcount = 280; //280 ticks per rotation
+   static final double gear_diameter = 0.6; // inches
+   static final double arm_counts_per_inch = (forearm_revcount) / (gear_diameter * 3.1415);
+
+
+   //Speed stats
+   static double drive_speed = 1.0;
+   static double top_speed = 1.0;
+   static double bottom_speed = 0.2;
+
+
+   //A little forgiveness for the robot
+   static double tolerance = 5;
+
+
+   //Slows down before finding correct angle to prvent the robot from over shoting it
+   static int almost_there = 20;
+
+
+   //distance between the game pieces
+   static double distance_between_the_game_pieces = 16.970562748477105822026;
+
+
+   //Has the pos_inputed
+   String pos_inputed = "not inputed";
+
+
+   //Red or blue?
+   String red_or_blue = "not inputed";
+
+
+   //Tenser flow
+   public static final String TFOD_MODEL_ASSET = "RoverRuckus.tflite";
+
+
+   //gold
+   public static final String LABEL_GOLD_MINERAL = "Gold Mineral";
+
+
+   //silver
+   public static final String LABEL_SILVER_MINERAL = "Silver Mineral";
+
+
+   //Vuforia key
+   public static final String VUFORIA_KEY = "ASB+lMn/////AAABmSELZ/IC5U5BklpoBPC3MN4Bnga4Xi/C52uy24x/iu+1isv802qak3Cz7DOfClTCJ0WCslWLoV5ClMI7bZ0r9g6woGi76wVh5QT5qCojPJAWQCI/mWexTqyZRHLEsB9i6bVvI6aP2fAOCOy5W2+MkXZ8ATQQXmpCkiCNIM7uijcc1KUbnInxxZwKC249md7EOb8jgY/I0zflVOeMj2wi/SS/V98KfZcDbis0DeMBhOtG3YiNwr9Ak5Zo5rutC5V8gCiJTRQm9acUmHoj1h18klkoRu4yt97kJnoemgnbrbzWiPJZ1iWwGNcFruZSvtCxApi4vMk+H//LZztLJnnpXFejWjVaJL+s437tIFp8w/aV";
+
+
+   //Vuforia: the variable we will use to store our instance of the Vuforia
+   public VuforiaLocalizer vuforia;
+
+
+   //Tfod is the variable we will use to store our instance of the Tensor Flow Object
+   public TFObjectDetector tfod;
+
+
+   public void where_are_we(){
+
+
+       //Color message
+       telemetry.addData("Please", " input color. Press x if we are Blue and press B if we are Red.");
+       telemetry.update();
+
+
+       while (red_or_blue.matches("not inputed")){
+           if (gamepad1.x){
+               red_or_blue = "Blue";
+           }
+
+
+           if (gamepad1.b){
+               red_or_blue = "Red";
+           }
+       }
+
+
+       //Position message
+       telemetry.addData("Please", " input position. Press Y if we are in position 1" +
+               " and press A if we are position 2.");
+       telemetry.update();
+
+
+       while (pos_inputed.matches("not inputed")){
+           if (gamepad1.y){
+               pos_inputed = "1";
+           }
+
+
+           if (gamepad1.a){
+               pos_inputed = "2";
+           }
+       }
+
+
+       //let us go
+       telemetry.addData("Ready to go!!!!","Let us do this!");
+       telemetry.update();
+   }
+
+
+   public void initVuforia() {
+       /*
+        * Configure Vuforia by creating a Parameter object, and passing it to the Vuforia engine.
+        */
+       VuforiaLocalizer.Parameters parameters = new VuforiaLocalizer.Parameters();
+
+
+       parameters.vuforiaLicenseKey = VUFORIA_KEY;
+       parameters.cameraDirection = CameraDirection.BACK;
+
+
+       //  Instantiate the Vuforia engine
+       vuforia = ClassFactory.getInstance().createVuforia(parameters);
+
+
+       // Loading trackables is not necessary for the Tensor Flow Object Detection engine.
+   }
+
+
+   public void initTfod() {
+       int tfodMonitorViewId = hardwareMap.appContext.getResources().getIdentifier(
+               "tfodMonitorViewId", "id", hardwareMap.appContext.getPackageName());
+       TFObjectDetector.Parameters tfodParameters = new TFObjectDetector.Parameters(tfodMonitorViewId);
+       tfod = ClassFactory.getInstance().createTFObjectDetector(tfodParameters, vuforia);
+       tfod.loadModelFromAsset(TFOD_MODEL_ASSET, LABEL_GOLD_MINERAL, LABEL_SILVER_MINERAL);
+   }
+
+
+   public void find_angle(double angle_I_want) {
+
+
+       boolean finding_angle = true;
+
+
+       while (finding_angle == true) {
+
+
+           //finds angles
+           angles = imu.getAngularOrientation(AxesReference.INTRINSIC, AxesOrder.ZYX, AngleUnit.DEGREES);
+
+
+           //The bigger this is the closer it has to be to slow down
+           double multiplier = 1;
+           double angle_diff;
+
+
+           /*
+           angles.firstAngle = xy plane
+           angles.secondAngle = tilt
+           angles.thirdAngle = roll
+           */
+
+
+           if (Math.round(angles.firstAngle) > angle_I_want) {
+
+
+               //Slows down before finding correct angle to prevent the robot from over shoting it
+               angle_diff = (angles.firstAngle - angle_I_want);
+               drive_speed = Math.min(Math.max((angle_diff * multiplier), top_speed), bottom_speed);
+
+
+               left_front_motor.setPower(-drive_speed);
+               right_front_motor.setPower(-drive_speed);
+               left_back_motor.setPower(-drive_speed);
+               right_back_motor.setPower(-drive_speed);
+
+
+           } else if (Math.round(angles.firstAngle) < angle_I_want) {
+
+
+               //Slows down before finding correct angle to prevent the robot from over shoting it
+               angle_diff = (angle_I_want - angles.firstAngle);
+               drive_speed = Math.min(Math.max((angle_diff * multiplier), top_speed), bottom_speed);
+
+
+               left_front_motor.setPower(drive_speed);
+               right_front_motor.setPower(drive_speed);
+               left_back_motor.setPower(drive_speed);
+               right_back_motor.setPower(drive_speed);
+
+
+           }
+
+
+           else {
+
+
+               //Tells user the robot found the right angle
+               telemetry.addData("On", "track!!!");
+               telemetry.update();
+
+
+               //Stops all motion
+               left_front_motor.setPower(0);
+               right_front_motor.setPower(0);
+               left_back_motor.setPower(0);
+               right_back_motor.setPower(0);
+
+
+               //FOUND ANGLE :)
+               finding_angle = false;
+
+
+           }
+
+
+           //Updates user
+           telemetry.addData("First angle is is '%s'", angles.firstAngle);
+           telemetry.update();
+       }
+
+
+   }//end of find angle
+
+
+   //Move Arm
+   public void use_arm(int inches, int shoulder_power, boolean claw_open){
+
+
+       int new_shoulder_target;
+       int new_bicep_target;
+
+
+       telemetry.addData("Current position:",shoulder.getCurrentPosition());
+       telemetry.update();
+
+
+       //Turns on run to position
+       shoulder.setMode(DcMotor.RunMode.RUN_TO_POSITION);
+
+
+       if (opModeIsActive()) {
+
+
+           //target
+           new_shoulder_target = shoulder.getCurrentPosition() + (int)(inches * arm_counts_per_inch);
+           shoulder.setTargetPosition(new_shoulder_target);
+
+
+           while (opModeIsActive() && (shoulder.isBusy())) {
+
+
+               shoulder.setPower(shoulder_power);
+               // Display it for the driver.
+               telemetry.addData("shoulder: ", shoulder.getCurrentPosition());
+               telemetry.update();
+           }
+
+
+           //stop!
+           shoulder.setPower(0);
+
+
+       }//Opmode is active
+
+
+       telemetry.addData("Current position:",shoulder.getCurrentPosition());
+       telemetry.update();
+
+
+       //Turns of run to position
+       shoulder.setMode(DcMotor.RunMode.RUN_USING_ENCODER);
+
+
+       //stop
+       shoulder.setPower(0.0);
+
+
+   }//End of move arm
+
+
+   public void drive(double Front_left_wheel_power,double Front_right_wheel_power ,double Back_left_wheel_power ,double Back_right_wheel_power , double inches){
+
+
+       //goes to angle
+       //find_angle(angle);
+
+
+       int new_flw_target;
+       int new_frw_target;
+       int new_blw_target;
+       int new_brw_target;
+
+
+       if (opModeIsActive()) {
+
+
+           //flw target
+           new_flw_target = shoulder.getCurrentPosition() + (int)(inches * arm_counts_per_inch);
+           left_front_motor.setTargetPosition(new_flw_target);
+
+
+           //frw target
+           new_frw_target = shoulder.getCurrentPosition() + (int)(inches * arm_counts_per_inch);
+           right_front_motor.setTargetPosition(new_frw_target);
+
+
+           //blw target
+           new_blw_target = shoulder.getCurrentPosition() + (int)(inches * arm_counts_per_inch);
+           left_back_motor.setTargetPosition(new_blw_target);
+
+
+           //brw target
+           new_brw_target = shoulder.getCurrentPosition() + (int)(inches * arm_counts_per_inch);
+           right_back_motor.setTargetPosition(new_brw_target);
+
+
+           //finds angles
+           angles = imu.getAngularOrientation(AxesReference.INTRINSIC, AxesOrder.ZYX, AngleUnit.DEGREES);
+
+
+           //Determines which varibles power each motor
+           left_front_motor.setPower(Front_left_wheel_power);
+           right_front_motor.setPower(Front_right_wheel_power);
+           left_back_motor.setPower(Back_left_wheel_power);
+           right_back_motor.setPower(Back_right_wheel_power);
+
+
+           // Turn On RUN_TO_POSITION
+           left_front_motor.setMode(DcMotor.RunMode.RUN_TO_POSITION);
+           right_front_motor.setMode(DcMotor.RunMode.RUN_TO_POSITION);
+           left_back_motor.setMode(DcMotor.RunMode.RUN_TO_POSITION);
+           right_back_motor.setMode(DcMotor.RunMode.RUN_TO_POSITION);
+
+
+           //if shifted find angle
+           /*
+           if ((angle > Math.round(angles.firstAngle) + tolerance) || (angle < Math.round(angles.firstAngle) - tolerance)) {
+               //goes to angle
+               find_angle(angle);
+
+
+           }
+           */
+
+
+           while (opModeIsActive() && left_front_motor.isBusy() && left_front_motor.isBusy() && left_back_motor.isBusy() && right_back_motor.isBusy()){
+
+
+               left_front_motor.setPower(Front_left_wheel_power);
+               right_front_motor.setPower(Front_right_wheel_power);
+               left_back_motor.setPower(Back_left_wheel_power);
+               right_back_motor.setPower(Back_right_wheel_power);
+
+
+           }
+
+
+       }//Opmode is active
+
+
+   }//End of drive
+
+
+   //find gold method
+   public void find_gold(){
+
+
+       boolean finding_gold = true;
+
+
+       //loop
+       if (opModeIsActive()) {
+
+
+           /** Activate Tensor Flow Object Detection. */
+           if (tfod != null) {
+               tfod.activate();
+           }
+
+
+           while (opModeIsActive()) {
+
+
+               if (tfod != null) {
+
+
+                   // getUpdatedRecognitions() will return null if no new information is available since
+                   // the last time that call was made.
+                   List<Recognition> updatedRecognitions = tfod.getUpdatedRecognitions();
+
+
+                   //checks if updatedRecognitions is not null
+                   if (updatedRecognitions != null) {
+
+
+                       //Found 3 of something
+                       if (updatedRecognitions.size() == 3) {
+                           telemetry.addData("# Object Detected", updatedRecognitions.size());
+                           telemetry.update();
+
+
+                           int goldx = -1;
+                           int silver1x = -1;
+                           int silver2x = -1;
+
+
+                           //Recognition
+                           for (Recognition recognition : updatedRecognitions) {
+
+
+                               if (recognition.getLabel().equals(LABEL_GOLD_MINERAL)) {
+
+
+                                   goldx = (int) recognition.getLeft();
+
+
+                               } else if (silver1x == -1) {
+
+
+                                   silver1x = (int) recognition.getLeft();
+
+
+                               } else {
+
+
+                                   silver2x = (int) recognition.getLeft();
+                               }
+
+
+                               //checks to see which is more left
+                               if (goldx != -1 && silver1x != -1 && silver2x != -1) {
+
+
+                                   //Gold is on the left
+                                   if (goldx < silver1x && goldx < silver2x) {
+                                       telemetry.addData("Gold Mineral Position", "Left");
+                                       telemetry.update();
+
+
+                                       drive(1,1,1,1, 14.5);
+
+
+                                   }
+
+
+                                   //Gold is on the right
+                                   if (goldx > silver1x && goldx > silver2x) {
+                                       telemetry.addData("Gold Mineral Position", "Right");
+                                       telemetry.update();
+                                       drive(-1,1,1,1, 14.5);
+                                   }
+
+
+                                   //Gold is center
+                                   else {
+                                       telemetry.addData("Gold Mineral Position", "Center");
+                                       telemetry.update();
+                                       drive(1,1,1,1,14.5);
+                                   }
+
+
+
+
+                               }//checks to see which is more left
+
+
+                           }//Recognition
+
+
+                       }//Found 3 of something
+
+
+                   }//checks if updatedRecognitions is not null
+
+
+               }//tfod != null
+
+
+           }//while opmode is active
+       }
+
+
+       //I honesty dont know what this does but I am scared to delete it :(
+       if (tfod != null) {
+           tfod.shutdown();
+       }
+
+
+
+
+   }//End of find gold
+
+
+   @Override
+   //Where all the commands are issued------------------------------------------------------------------------------------
+   public void runOpMode() {
+
+
+       //Getting the wheels ready------------------------------------------------------------------
+
+
+       //Finds the wheels
+       left_front_motor = hardwareMap.dcMotor.get("left_front_motor");
+       right_front_motor = hardwareMap.dcMotor.get("right_front_motor");
+       left_back_motor = hardwareMap.dcMotor.get("left_back_motor");
+       right_back_motor = hardwareMap.dcMotor.get("right_back_motor");
+
+
+       //Arm
+       shoulder = hardwareMap.dcMotor.get("shoulder");
+       bicep = hardwareMap.dcMotor.get("bicep");
+
+
+       //reverse backwards motor
+       left_front_motor.setDirection(DcMotor.Direction.REVERSE);
+       right_front_motor.setDirection(DcMotor.Direction.REVERSE);
+       bicep.setDirection(DcMotor.Direction.REVERSE);
+
+
+       //Getting the wheels ready------------------------------------------------------------------
+
+
+       //Getting the gyro ready--------------------------------------------------------------------
+
+
+       BNO055IMU.Parameters parameters = new BNO055IMU.Parameters();
+       parameters.angleUnit           = BNO055IMU.AngleUnit.DEGREES;
+       parameters.accelUnit           = BNO055IMU.AccelUnit.METERS_PERSEC_PERSEC;
+       parameters.calibrationDataFile = "BNO055IMUCalibration.json"; // see the calibration sample opmode
+
+
+       //Gyro
+       imu = hardwareMap.get(BNO055IMU.class, "imu");
+       imu.initialize(parameters);
+
+
+       // Start the logging of measured acceleration
+       imu.startAccelerationIntegration(new Position(), new Velocity(), 1000);
+
+
+       //Getting the gyro ready--------------------------------------------------------------------
+
+
+       //initilized Vuforia
+       initVuforia();
+
+
+       //Checks if the damn thing can use the tenser flow
+       if (ClassFactory.getInstance().canCreateTFObjectDetector()) {
+           initTfod();
+       } else {
+           telemetry.addData("Sorry!", "This device is not compatible with TFOD");
+       }
+
+
+       //Driver input
+//        where_are_we();
+
+
+       //wait for start
+      waitForStart();
+
+
+       // quick and dirty
+       int bicepcount = 2;
+       int bicepoffset = -800;
+
+
+       for(int i = 0 ; i < bicepcount ; i++){
+           int bicepTarget = bicep.getCurrentPosition() + bicepoffset;
+           bicep.setTargetPosition(bicepTarget);
+           bicep.setMode(DcMotor.RunMode.RUN_TO_POSITION);
+           bicep.setPower(1.0);
+       }
+
+
+       int decendcount = 400;
+       int decendoffset = 5000;
+
+
+       for(int i = 0 ; i < decendcount ; i++){
+           int decendTarget = shoulder.getCurrentPosition() + decendoffset;
+           shoulder.setTargetPosition(decendTarget);
+           shoulder.setMode(DcMotor.RunMode.RUN_TO_POSITION);
+           shoulder.setPower(1.0);
+       }
+
+
+       int spincount = 20;
+       int spinoffset = 5000;
+
+
+       for(int i = 0 ; i < spincount ; i++){
+           int spinTarget = shoulder.getCurrentPosition() + spinoffset;
+           right_back_motor.setTargetPosition(-spinTarget);
+           left_back_motor.setTargetPosition(-spinTarget);
+           right_front_motor.setTargetPosition(spinTarget);
+           left_front_motor.setTargetPosition(spinTarget);
+
+
+           right_back_motor.setMode(DcMotor.RunMode.RUN_TO_POSITION);
+           left_back_motor.setMode(DcMotor.RunMode.RUN_TO_POSITION);
+           right_front_motor.setMode(DcMotor.RunMode.RUN_TO_POSITION);
+           left_front_motor.setMode(DcMotor.RunMode.RUN_TO_POSITION);
+
+
+           right_back_motor.setPower(1.0);
+           left_back_motor.setPower(1.0);
+           right_front_motor.setPower(1.0);
+           left_front_motor.setPower(1.0);
+       }
+
+
+//        //goes up
+//        use_arm(80,1,false);
+//
+//        //goes left, detaches
+//        drive(1,0.5,-1,-1,0.1);
+//
+//        //goes down
+//        use_arm(-80,-1,false);
+//
+//        //find gold
+//        //find_gold();
+//
+//        drive(1,1,1,1,3);
+//
+//        if(red_or_blue.matches("Red")){
+//
+//            if (pos_inputed.matches("1")){
+//
+//                //away from lander
+//                drive(1,1,1,1,30);
+//
+//                //turn left
+//                drive(-1,1,-1,1, 15);
+//
+//                //drive forward
+//                drive(1,1,1,1,14.5);
+//
+//                //turn right
+//                drive(1,-1,1,-1, 15);
+//
+//                //drive forward
+//                drive(1,1,1,1,49);
+//            }
+//
+//            if (pos_inputed.matches("2")){
+//
+//                //drive forward
+//                drive(1,1,1,1,30);
+//
+//            }
+//
+//        }
+//
+//        if(red_or_blue.matches("Blue")){
+//
+//            if (pos_inputed.matches("1")){
+//
+//                //away from lander
+//                drive(1,1,1,1,30);
+//
+//                //turn right
+//                drive(-1,1,-1,1, 15);
+//
+//                //drive forward
+//                drive(1,1,1,1,14.5);
+//
+//                //turn left
+//                drive(1,-1,1,-1, 15);
+//
+//                //drive forward
+//                drive(1,1,1,1,49);
+//
+//            }
+//
+//            if (pos_inputed.matches("2")){
+//
+//                //drive forward
+//                drive(1,1,1,1,30);
+//
+//            }
+
+
+//        }
+
+
+   }//End of op mode
+   //Where all the commands are issued------------------------------------------------------------------------------------
+
+
+}//End of class
